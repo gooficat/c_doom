@@ -53,48 +53,68 @@ void update(float dt) {
 	p.a = fmod(p.a, M_PI*2);
 }
 
-double a[3] = {
-	40, 0, 10
+double a[4] = {
+	40, 0, 10, 100
 };
-
-double b[3] = {
-	40, 0, 290
+double b[4] = {
+	40, 0, 290, 100
 };
 
 #define FOCAL 100
 void project(double in[], player_t* p, int out[]) {
 	double w[3] = {in[0] - p->x, in[1] - p->y, in[2] - p->z};
-	double v[3];
+	double v[4];
 	v[0] = w[0] * cos(p->a) - w[2] * sin(p->a);
 	v[1] = w[1];
 	v[2] = w[2] * cos(p->a) + w[0] * sin(p->a);
+	v[3] = in[3] - p->y;
 	
 	
 	out[0] = v[0] * FOCAL/v[2]+(WIDTH/2);
 	out[1] = v[1] * FOCAL/v[2]+(HEIGHT/2);
+	out[2] = v[3] * FOCAL/v[2]+(HEIGHT/2);
 }
 
-void drawWall(int x1, int x2, int b1, int b2) {
+void drawWall(int x1, int x2, int b1, int b2, int t1, int t2) {
 	int x,y;
+	
+	if (x1 > x2) {
+		int q = x2;
+		x2 = x1;
+		x1 = q;
+		
+		q = b2;
+		b2 = b1;
+		b1 = q;
+
+		q = t2;
+		t2 = t1;
+		t1 = q;		
+	}
+	
 	int dyb = b2 - b1;
+	int dyt = t2 - t1;
 	int dx = x2 - x1; if (dx==0) dx=1;
 	int xs = x1;
 	
 	for (x = x1; x < x2; x++) {
 		int y1 = dyb * (x - xs + 0.5) / dx + b1;
-		pix(x, y1, 0xffff00ff);
+		int y2 = dyt * (x - xs + 0.5) / dx + t1;
+		for (y = y1; y < y2; y++) {
+			pix(x, y, 0xffff00ff);
+		}
 	}
 }
 
 
 void render(float dt) {
-	int d1[2];
-	int d2[2];
+	int x[3];
+	int y[3];
 	
-	project(a, &p, d1);
-	project(b, &p, d2);
-	drawWall(d1[0], d2[0], d1[1], d2[1]);
-	pix(d1[0], d1[1], 0xffffff00);
+	project(a, &p, x);
+	project(b, &p, y);
+	
+	drawWall(x[0], y[0], x[1], y[1], x[2], y[2]);
 }
 
 
