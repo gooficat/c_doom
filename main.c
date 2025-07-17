@@ -34,11 +34,13 @@ typedef struct {
 } wall_t;
 
 typedef struct {
-	int ws, we;
+	int index, size;
 	int z1, z2;
 	int x, y;
 	int d;
 	int c1, c2;
+	int surf[WIDTH];
+	int surface;
 } sector_t;
 
 wall_t walls[30];
@@ -99,15 +101,15 @@ void init() {
 		v2 = 0;
 	
 	for (int s = 0; s < sector_count; s++) {
-		sectors[s].ws = loadSectors[v1+0];
-		sectors[s].we = loadSectors[v1+1];
+		sectors[s].index = loadSectors[v1+0];
+		sectors[s].size = loadSectors[v1+1];
 		sectors[s].z1 = loadSectors[v1+2];
 		sectors[s].z2 = loadSectors[v1+3] - loadSectors[v1+2];
-		sectors[s].c1 = loadSectors[v1+4];
-		sectors[s].c2 = loadSectors[v1+5];
+		sectors[s].c1 = colors[loadSectors[v1+4]+1];
+		sectors[s].c2 = colors[loadSectors[v1+5]+1];
 		v1 += 6;
 		
-		for (int w = sectors[s].ws; w < sectors[s].we; w++) {
+		for (int w = sectors[s].index; w < sectors[s].size; w++) {
 			walls[w].x1 = loadWalls[v2+0];
 			walls[w].y1 = loadWalls[v2+1];
 			walls[w].x2 = loadWalls[v2+2];
@@ -131,19 +133,7 @@ void clip(int* x1, int* y1, int* z1, int x2, int y2, int z2) {
 }
 
 void drawWall(int x1, int x2, int b1, int b2, int t1, int t2, uint32_t color, int sector_id) {
-	if (x2 < x1) {
-		int t = x1;
-		x1 = x2;
-		x2 = t;
-		
-		t = b1;
-		b1 = b2;
-		b2 = t;
-		
-		t = t1;
-		t1 = t2;
-		t2 = t;
-	}
+
 	int dyb = b2 - b1;
 	int dyt = t2 - t1;
 	int dx = x2 - x1; if(!dx)dx=1;
@@ -162,6 +152,26 @@ void drawWall(int x1, int x2, int b1, int b2, int t1, int t2, uint32_t color, in
 		if(y2<1)y1=1;
 		if(y1>HEIGHT-1)y1=HEIGHT-1;
 		if(y2>HEIGHT-1)y2=HEIGHT-1;
+		
+		if (sectors[sector_id].surface == 1) {
+			sectors[sector_id].surf[x] = y1;
+			continue;
+		}
+		if (sectors[sector_id].surface == 2) {
+			sectors[sector_id].surf[x] = y2;
+			continue;
+		}
+		if (sectors[sector_id].surface == -1) {
+			for (int y = sectors[sector_id].surf[x]; y < y1; y++) {
+				pix(x, y, sectors[sector_id].c2);
+			}
+		}
+		if (sectors[sector_id].surface == -2) {
+			for (int y = y1; y < sectors[sector_id].surf[x]; y++) {
+				pix(x, y, sectors[sector_id].c2);
+			}
+		}
+		
 
 		for (int y = y1; y < y2; y++) {
 			pix(x, y, color);
@@ -211,61 +221,98 @@ void render(float dt) {
 	float cs = cos(p.a),
 		  sn = sin(p.a);
 	
+	//sorting algorithm for the sectors
+	for (int s = 0; s < sector_count - 1; s++) {
+		for (int w = 0; w < sector_count - s - 1; w++) {
+			if (sectors[w].d < sectors[w + 1].d) {
+				sector_t st = sectors[w];
+				sectors[w] = sectors[w+1];
+				sectors[w+1] = st;
+			}
+		}
+	}
+	
 	for (int s = 0; s < sector_count; s++) {
 		sectors[s].d = 0;
-		for (int w = sectors[s].ws; w < sectors[s].we; w++) {
-			int x1 = walls[w].x1 - p.x,
-				y1 = walls[w].y1 - p.y;
-			
-			int x2 = walls[w].x2 - p.x,
-				y2 = walls[w].y2 -p.y;
-			
-			wx[0] = x1 * cs - y1 * sn;
-			wx[1] = x2 * cs - y2 * sn;
-			wx[2] = wx[0];
-			wx[3] = wx[4];
-			
-			wy[0] = y1 * cs + x1 * sn;
-			wy[1] = y2 * cs + x2 * sn;
-			wy[2] = wy[0];
-			wy[3] = wy[1];
-			sectors[s].d += distance(0, 0, (wx[0] + wx[1]) / 2, (wy[0] + wy[1]) / 2);
-			
-			wz[0] = sectors[s].z1 - p.z + ((p.l * wy[0])/32.0);
-			wz[1] = sectors[s].z1 - p.z + ((p.l * wy[1])/32.0);
-			wz[2] = wz[0] + sectors[s].z2;
-			wz[3] = wz[1] + sectors[s].z2;
-			
-			if (wy[0] < 1 && wy[1] < 1) continue;
-			
-			if (wy[0] < 1) {
-				clip(&wx[0], &wy[0], &wz[0], wx[1], wy[1], wz[1]);
-				clip(&wx[2], &wy[2], &wz[2], wx[3], wy[3], wz[3]);
+		
+		if (p.z < sectors[s].z1) sectors[s].surface = 1;
+		else if (p.z > sectors[s].z2) sectors[s].surface = 2;
+		else sectors[s].surface = 0;
+		
+		for (int i = 0; i < 2; i++) {
+			for (int w = sectors[s].index; w < sectors[s].size; w++) {
+				
+				//transform around the player
+				
+				int x1 = walls[w].x1 - p.x,
+					y1 = walls[w].y1 - p.y;
+				
+				int x2 = walls[w].x2 - p.x,
+					y2 = walls[w].y2 -p.y;
+				
+				//if on the first draw, swap points
+				if (!i) {
+					int swp = x1;
+					x1 = x2;
+					x2 = swp;
+					swp = y1;
+					y1 = y2;
+					y2 = swp;
+				}
+				
+				wx[0] = x1 * cs - y1 * sn;
+				wx[1] = x2 * cs - y2 * sn;
+				wx[2] = wx[0];
+				wx[3] = wx[4];
+				
+				wy[0] = y1 * cs + x1 * sn;
+				wy[1] = y2 * cs + x2 * sn;
+				wy[2] = wy[0];
+				wy[3] = wy[1];
+				
+				sectors[s].d += distance(0, 0, (wx[0] + wx[1]) / 2, (wy[0] + wy[1]) / 2);
+				
+				wz[0] = sectors[s].z1 - p.z + ((p.l * wy[0])/32.0);
+				wz[1] = sectors[s].z1 - p.z + ((p.l * wy[1])/32.0);
+				wz[2] = wz[0] + sectors[s].z2;
+				wz[3] = wz[1] + sectors[s].z2;
+				
+				//clip
+				
+				if (wy[0] < 1 && wy[1] < 1) continue;
+				
+				if (wy[0] < 1) {
+					clip(&wx[0], &wy[0], &wz[0], wx[1], wy[1], wz[1]);
+					clip(&wx[2], &wy[2], &wz[2], wx[3], wy[3], wz[3]);
+				}
+				
+				if (wy[1] < 1) {
+					clip(&wx[1], &wy[1], &wz[1], wx[0], wy[0], wz[0]);
+					clip(&wx[3], &wy[3], &wz[3], wx[2], wy[2], wz[2]);
+				}
+				
+				//screen space
+				
+				wx[0] = wx[0] * 200 / wy[0] + WIDTH/2;
+				wy[0] = wz[0] * 200 / wy[0] + HEIGHT/2;
+				
+				wx[1] = wx[1] * 200 / wy[1] + WIDTH/2;
+				wy[1] = wz[1] * 200 / wy[1] + HEIGHT/2;
+				
+				wx[2] = wx[2] * 200 / wy[2] + WIDTH/2;
+				wy[2] = wz[2] * 200 / wy[2] + HEIGHT/2;
+				
+				wx[3] = wx[3] * 200 / wy[3] + WIDTH/2;
+				wy[3] = wz[3] * 200 / wy[3] + HEIGHT/2;
+				
+				
+				
+				drawWall(wx[0], wx[1], wy[0], wy[1], wy[2], wy[3], walls[w].color, s);
+				
 			}
-			
-			if (wy[1] < 1) {
-				clip(&wx[1], &wy[1], &wz[1], wx[0], wy[0], wz[0]);
-				clip(&wx[3], &wy[3], &wz[3], wx[2], wy[2], wz[2]);
-			}
-			
-			wx[0] = wx[0] * 200 / wy[0] + WIDTH/2;
-			wy[0] = wz[0] * 200 / wy[0] + HEIGHT/2;
-			
-			wx[1] = wx[1] * 200 / wy[1] + WIDTH/2;
-			wy[1] = wz[1] * 200 / wy[1] + HEIGHT/2;
-			
-			wx[2] = wx[2] * 200 / wy[2] + WIDTH/2;
-			wy[2] = wz[2] * 200 / wy[2] + HEIGHT/2;
-			
-			wx[3] = wx[3] * 200 / wy[3] + WIDTH/2;
-			wy[3] = wz[3] * 200 / wy[3] + HEIGHT/2;
-			
-			
-			
-			drawWall(wx[0], wx[1], wy[0], wy[1], wy[2], wy[3], walls[w].color, 0);
-			
 		}
-	sectors[s].d /= (sectors[s].we - sectors[s].ws);
+		sectors[s].d /= (sectors[s].size - sectors[s].index);
+		sectors[s].surface *= -1;
 	}
 }
 
@@ -302,7 +349,6 @@ int main() {
 					break;
 			}
 		}
-		
 		
 		
 		update(deltaTime);
